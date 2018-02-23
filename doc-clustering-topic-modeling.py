@@ -17,6 +17,10 @@ def read_vocab(vocab_file_name):
 	return [w.strip() for w in open(vocab_file_name)]
 
 
+vocab = read_vocab('vocab.kos.txt')
+
+
+
 # read docword.txt into a document x word matrix
 
 
@@ -47,7 +51,7 @@ def read_docword(file_name):
 
 
 
-D,W,N,docword = read_docword(file_name)
+D,W,N,docword = read_docword('docword.kos.txt')
 
 
 # tfidf, term frequency inverse document frequency
@@ -80,7 +84,7 @@ km = KMeans(algorithm='auto',
 clusters = km.labels_.tolist()
 
 #sort cluster centers by proximity to centroid
-k_centers = km.cluster_centers_ #Coordinates of cluster centers
+k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
 order_centroids = k_centers.argsort()[:, ::-1] #argsort returns the indices that would sort an array
 
 for c in range(k):
@@ -169,7 +173,16 @@ def scatter(x, colors, nclasses):
 
 
 
+from sklearn.decomposition import PCA
 
+# Create a PCA model.
+pca_2 = PCA(2)
+# Fit the PCA model on the numeric columns from earlier.
+plot_columns = pca_2.fit_transform(dist)
+# Make a scatter plot of each game, shaded according to cluster assignment.
+plt.scatter(x=plot_columns[:,0], y=plot_columns[:,1])#, c=labels)
+# Show the plot.
+plt.show()
 
 
 
