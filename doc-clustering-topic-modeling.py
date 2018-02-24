@@ -6,6 +6,7 @@ import seaborn as sb
 from scipy import sparse
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
+import scipy.cluster.hierarchy as sch
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfTransformer
@@ -67,6 +68,8 @@ docword_tfidf = tfidf_transformer.fit_transform(docword)
 
 
 
+#KMeans --------------------------
+
 k = 20
 km = KMeans(algorithm='auto',
 			copy_x=True,
@@ -98,11 +101,61 @@ for c in range(k):
 
 
 
+#Hierarchical Clustering --------------------------
+
+import scipy.cluster.hierarchy as sch
+from scipy.cluster.hierarchy import ward, dendrogram
+from sklearn.metrics.pairwise import cosine_similarity
+import scipy.spatial.distance as scdist
 
 
+#Compute distance matrix . Cosine is a good metric
+#Pairwise distances between observations in n-dimensional space.
 
-
+#Option 1 is sklearn.metrics.pairwais cosine_similarity
 dist = 1 - cosine_similarity(docword_tfidf)
+
+#Option 2 is scipy.spatial.distance (can't take csr_matrix as input and is slower)
+D = scdist.pdist(docword_tfidf.todense(), metric='cosine')
+D = scdist.squareform(D)
+
+
+#Then get linkage matrix
+
+#Option 1 define the linkage_matrix using ward clustering pre-computed distances
+linkage_matrix_ward = ward(dist) 
+
+#Option 2 
+linkage_matrix_complete = sch.linkage(D, method='complete')#, metric='cosine')
+
+
+dendro_color_threshold = 0.7 #default
+sch.dendrogram(linkage_matrix, orientation='left', color_threshold=dendro_color_threshold*max(linkage_matrix[:,2]))
+
+
+
+fig, ax = plt.subplots(figsize=(15, 20)) # set size
+ax = dendrogram(linkage_matrix, orientation="left");
+
+plt.tick_params(\
+    axis= 'x',          # changes apply to the x-axis
+    which='both',      # both major and minor ticks are affected
+    bottom='off',      # ticks along the bottom edge are off
+    top='off',         # ticks along the top edge are off
+    labelbottom='off')
+
+plt.tight_layout() #show plot with tight layout
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -115,7 +168,7 @@ import matplotlib as mpl
 
 
 
-''' Try ICA or tSNE, MDS takes too long
+''' Try PCA or tSNE, MDS takes too long
 
 from sklearn.manifold import MDS, TSNE
 
