@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import csv
 #%matplotlib inline 
 import numpy as np
 import seaborn as sb
@@ -107,7 +108,7 @@ Means-shift, for instance
 
 
 
-#KMeans --------------------------
+#KMeans --------------------------------------------------------------------------------------------------------
 '''
 separate samples in n groups of equal variance
 first step chooses the initial centroids (k, the number of clusters)
@@ -137,17 +138,20 @@ clusters = km.labels_.tolist()
 k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
 order_centroids = k_centers.argsort()[:, ::-1] #argsort returns the indices that would sort an array
 
+cluster_topics = {}
 for c in range(k):
-	print "Cluster %i: " % c + \
-			','.join([vocab[i] for i in [ix for ix in order_centroids[c, :5]]])
+	topic = ','.join([vocab[i] for i in [ix for ix in order_centroids[c, :5]]])
+	cluster_topics[c] = topic
+	print "Cluster %i: " % c + topic
 
 
 
+#--------------------------------------------------------------------------------------------------------
 
 
 
 # Try to find  optimal number of clusters for k-means. "Elbow" method
-k_range = range(2,20)
+k_range = range(2,4)
 kms = [KMeans(n_clusters=k, init='k-means++').fit(docword_tfidf) for k in k_range]
 centroids = [X.cluster_centers_ for X in kms]
 labels = [km.labels_ for km in kms]
@@ -163,6 +167,7 @@ tss = sum(scdist.pdist(docword_tfidf.todense())**2)/docword_tfidf.shape[0]
 #between cluster sum of squares:
 bss = tss - wcss
 #plot average wcss vs number of clusters "Elbow plot": look for a point where the rate of decrease in wcss sharply shifts
+plt.subplots(figsize=(18, 12)) # set size
 plt.plot(k_range, avwcss, '-o')
 plt.ylabel("average wcss")
 plt.xlabel("k")
@@ -178,6 +183,7 @@ silhouette_avg_scores = [silhouette_score(docword_tfidf, l) for l in labels]
 print silhouette_avg_scores
 
 
+#--------------------------------------------------------------------------------------------------------
 
 
 
@@ -190,7 +196,11 @@ print silhouette_avg_scores
 
 
 
-# Mean Shift --------------------------
+
+
+
+
+# Mean Shift --------------------------------------------------------------------------------------------------------
 '''
 Mean shift has the advantage that it does not require a pre-defined number of clusters
 Updates centroid candidates in each iteration so they become the mean of the points within a region of size determined by the paramater bandwidth
@@ -202,7 +212,7 @@ from sklearn.cluster import MeanShift, estimate_bandwidth
 #bandwidth dictates the size of the region to search through. (Also called attractive/gravitational interaction length) Can be set manually
 #http://scikit-learn.org/stable/modules/generated/sklearn.cluster.estimate_bandwidth.html
 
-#bandwidth = estimate_bandwidth(matrix, quantile=0.5, n_samples=200) #default: quantile=0.3, n_samples= (all samples are used)
+bandwidth = estimate_bandwidth(matrix, quantile=0.5, n_samples=200) #default: quantile=0.3, n_samples= (all samples are used)
 
 #quantile=0.5 means that the median of all pairwise distances is used
 #but it takes a default value if bandwidth is not set
@@ -212,8 +222,8 @@ from sklearn.cluster import MeanShift, estimate_bandwidth
 #If bin_seeding=true, initial kernel locations are not locations of all points, but rather the location of the discretized version of points, 
 #where points are binned onto a grid whose coarseness corresponds to the bandwidth. Setting this option to True will speed up the algorithm because fewer seeds will be initialized
 
-#ms = MeanShift(bandwidth=bandwidth)
-ms = MeanShift()
+ms = MeanShift(bandwidth=bandwidth)
+#ms = MeanShift()
 
 ms.fit(matrix)
 labels = ms.labels_
@@ -230,6 +240,7 @@ for cluster in range(n_clusters_):
 
 
 
+#--------------------------------------------------------------------------------------------------------
 
 
 
@@ -241,7 +252,59 @@ for cluster in range(n_clusters_):
 
 
 
-#Hierarchical Clustering --------------------------
+
+
+
+
+
+
+
+
+
+#DBSCAN --------------------------------------------------------------------------------------------------------
+
+from sklearn.cluster import DBSCAN
+from sklearn import metrics
+
+#these are all defaults
+db = DBSCAN(eps=0.5, 
+			min_samples=5, 
+			metric='minkowski', 
+			metric_params=None, 
+			algorithm='auto', 
+			leaf_size=30, 
+			p=2)
+
+db.fit(docword_tfidf)
+
+
+core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+core_samples_mask[db.core_sample_indices_] = True
+labels = db.labels_
+
+# Number of clusters in labels, ignoring noise if present.
+n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+print("Silhouette Coefficient: %0.3f"  % metrics.silhouette_score(docword_tfidf, labels))
+
+
+#--------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Hierarchical Clustering --------------------------------------------------------------------------------
 
 import scipy.cluster.hierarchy as sch
 from sklearn.metrics.pairwise import cosine_similarity
@@ -289,6 +352,7 @@ plt.show()
 
 
 
+#--------------------------------------------------------------------------------------------------------
 
 
 
@@ -299,36 +363,9 @@ plt.show()
 
 
 
-
-
-
-#import os  # for os.path.basename
-
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-
-
-
-''' Try PCA or tSNE, MDS takes too long
-
-from sklearn.manifold import MDS, TSNE
-
-#MDS()
-
-# convert two components as we're plotting points in a two-dimensional plane
-# "precomputed" because we provide a distance matrix
-# we will also specify `random_state` so the plot is reproducible.
-mds = MDS(n_components=2, dissimilarity="precomputed", random_state=1)
-
-pos = mds.fit_transform(dist)  # shape (n_components, n_samples)
-
-xs, ys = pos[:, 0], pos[:, 1]
-'''
-
+#TSNE --------------------------------------------------------------------------------------------------------
 
 from sklearn.manifold import TSNE
-
-#tsne = TSNE(n_components=2, perplexity=30, learning_rate=1000, n_iter=1000) #learning_rate is also called epsilon
 
 tsne_cos = TSNE(n_components=2, 
 				perplexity=30, 
@@ -343,11 +380,9 @@ tsne_cos_coords = tsne_cos.fit_transform(dist)
 
 def scatter(x, colors, nclasses):
 	palette = np.array(sb.color_palette("hls", nclasses )) # color palette with seaborn.
-	f = plt.figure(figsize=(8, 8))
+	f = plt.figure(figsize=(12, 12))
 	ax = plt.subplot(aspect='equal')
 	sc = ax.scatter(x[:,0], x[:,1], linewidth=0, s=40, color=palette[colors])
-	plt.xlim(-25, 25)
-	plt.ylim(-25, 25)
 	#ax.axis('off')
 	ax.axis('tight')
 	txts = []
@@ -355,21 +390,17 @@ def scatter(x, colors, nclasses):
 		# Position of each label.
 		xtext, ytext = np.median(x[colors == i, :], axis=0)
 		txt = ax.text(xtext, ytext, str(i), fontsize=18)
-		#txt.set_path_effects([
-		#	PathEffects.Stroke(linewidth=5, foreground="w"),
-		#	PathEffects.Normal()])
 		txts.append(txt)
 	return f, ax, sc, txts
 
 
 #Plot KMeans clusters 
-#clusters = km.labels_.tolist()
-cluster_labels = km.fit_predict(docword_tfidf)
-scatter(tsne_cos_coords, clusters_labels, len(set(clusters)))
 
+scatter(tsne_cos_coords, km.labels_, len(set(km.labels_)))
 
 
 
+#--------------------------------------------------------------------------------------------------------
 
 
 
@@ -396,16 +427,7 @@ scatter(tsne_cos_coords, clusters_labels, len(set(clusters)))
 
 
 
-from sklearn.decomposition import PCA
 
-# Create a PCA model.
-pca_2 = PCA(2)
-# Fit the PCA model on the numeric columns from earlier.
-plot_columns = pca_2.fit_transform(dist)
-# Make a scatter plot of each game, shaded according to cluster assignment.
-plt.scatter(x=plot_columns[:,0], y=plot_columns[:,1])#, c=labels)
-# Show the plot.
-plt.show()
 
 
 
@@ -433,19 +455,4 @@ plt.show()
 
 
 
-
-
-
-
-
-
-
-ix_1third = docword_tfidf.shape[0]/3
-docword_tfidf_test = docword_tfidf[0:ix_1third,]
-docword_tfidf_train = docword_tfidf[ix_1third+1:,]
-
-
-
-
-nbayes_classifier = MultinomialNB().fit(docword_tfidf_test, docword_tfidf_train)
 
