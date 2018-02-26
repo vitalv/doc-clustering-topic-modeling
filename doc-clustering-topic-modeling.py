@@ -14,7 +14,7 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.metrics import silhouette_score, silhouette_samples
-
+sb.set_style("whitegrid", {'axes.grid' : False})
 
 
 
@@ -22,14 +22,8 @@ def read_vocab(vocab_file_name):
 	return [w.strip() for w in open(vocab_file_name)]
 
 
-vocab = read_vocab('vocab.kos.txt')
 
-
-
-# read docword.txt into a document x word matrix
-
-
-
+# read DTM.txt into a document x word matrix
 def read_docword(file_name):
 
 	file_handle = open(file_name)
@@ -38,7 +32,7 @@ def read_docword(file_name):
 	W = int(next(reader)[0])
 	N = int(next(reader)[0])
 
-	#create DxW numpy matrix
+	#create numpy DTM (Document-Term Matrix)
 	m = np.empty(shape=[D,W], dtype='int32')
 	#instead of creating a sparse matrix and then fill it up, create a numpy matrix
 	#and then later convert it to csr -> SparseEfficiencyWarning
@@ -55,8 +49,10 @@ def read_docword(file_name):
 	return D,W,N,m
 
 
+#DTM: Document-Term Matrix
+D,W,N,DTM = read_DTM('data/docword.nips.txt')
 
-D,W,N,docword = read_docword('docword.kos.txt')
+vocab = read_vocab('data/vocab.nips.txt')
 
 
 # tfidf, term frequency inverse document frequency
@@ -65,7 +61,7 @@ D,W,N,docword = read_docword('docword.kos.txt')
 
 
 tfidf_transformer = TfidfTransformer()
-docword_tfidf = tfidf_transformer.fit_transform(docword)
+DTM_tfidf = tfidf_transformer.fit_transform(DTM)
 
 
 
@@ -131,7 +127,7 @@ km = KMeans(algorithm='auto',
 			tol=0.0001,
 			verbose=0)
 
-%time km.fit(docword_tfidf)
+%time km.fit(DTM_tfidf)
 clusters = km.labels_.tolist()
 
 #sort cluster centers by proximity to centroid
@@ -151,19 +147,19 @@ for c in range(k):
 
 
 # Try to find  optimal number of clusters for k-means. "Elbow" method
-k_range = range(2,4)
-kms = [KMeans(n_clusters=k, init='k-means++').fit(docword_tfidf) for k in k_range]
+k_range = range(2,20)
+kms = [KMeans(n_clusters=k, init='k-means++').fit(DTM_tfidf) for k in k_range]
 centroids = [X.cluster_centers_ for X in kms]
 labels = [km.labels_ for km in kms]
 #calculate Euclidean distance from each point to cluster center
-k_euclid = [scdist.cdist(docword_tfidf.todense(), c, 'euclidean') for c in centroids]
+k_euclid = [scdist.cdist(DTM_tfidf.todense(), c, 'euclidean') for c in centroids]
 dist = [np.min(ke, axis=1) for ke in k_euclid]
 #Total within cluster sum of squares
 wcss = [sum(d**2) for d in dist]
 #average wcss
 avwcss = [(sum(d**2))/len(d) for d in dist]
 #total sum of squares
-tss = sum(scdist.pdist(docword_tfidf.todense())**2)/docword_tfidf.shape[0]
+tss = sum(scdist.pdist(DTM_tfidf.todense())**2)/DTM_tfidf.shape[0]
 #between cluster sum of squares:
 bss = tss - wcss
 #plot average wcss vs number of clusters "Elbow plot": look for a point where the rate of decrease in wcss sharply shifts
@@ -179,7 +175,7 @@ plt.xlabel("k")
 
 from sklearn.metrics import silhouette_score, silhouette_samples
 
-silhouette_avg_scores = [silhouette_score(docword_tfidf, l) for l in labels]
+silhouette_avg_scores = [silhouette_score(DTM_tfidf, l) for l in labels]
 print silhouette_avg_scores
 
 
@@ -275,7 +271,7 @@ db = DBSCAN(eps=0.5,
 			leaf_size=30, 
 			p=2)
 
-db.fit(docword_tfidf)
+db.fit(DTM_tfidf)
 
 
 core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
@@ -284,7 +280,7 @@ labels = db.labels_
 
 # Number of clusters in labels, ignoring noise if present.
 n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
-print("Silhouette Coefficient: %0.3f"  % metrics.silhouette_score(docword_tfidf, labels))
+print("Silhouette Coefficient: %0.3f"  % metrics.silhouette_score(DTM_tfidf, labels))
 
 
 #--------------------------------------------------------------------------------------------------------
@@ -315,10 +311,10 @@ import scipy.spatial.distance as scdist
 #Pairwise distances between observations in n-dimensional space.
 
 #Option 1 is sklearn.metrics.pairwais cosine_similarity
-dist = 1 - cosine_similarity(docword_tfidf)
+dist = 1 - cosine_similarity(DTM_tfidf)
 
 #Option 2 is scipy.spatial.distance (can't take csr_matrix as input and is slower)
-D = scdist.pdist(docword_tfidf.todense(), metric='cosine')
+D = scdist.pdist(DTM_tfidf.todense(), metric='cosine')
 D = scdist.squareform(D)
 
 
@@ -374,7 +370,7 @@ tsne_cos = TSNE(n_components=2,
 				metric='cosine', 
 				verbose=1)
 
-dist = 1 - cosine_similarity(docword_tfidf)
+dist = 1 - cosine_similarity(DTM_tfidf)
 
 tsne_cos_coords = tsne_cos.fit_transform(dist)
 
