@@ -19,12 +19,19 @@ sb.set_style("whitegrid", {'axes.grid' : False})
 
 
 def read_vocab(vocab_file_name):
+    '''Reads vocabulary file into a list'''
 	return [w.strip() for w in open(vocab_file_name)]
 
 
 
-# read DTM.txt into a document x word matrix
+
 def read_docword(file_name):
+	'''
+	Reads docword txt file into a Document-Term Matrix (DTM)
+	The full DTM will be too large to hold in memory if represented	as a dense matrix. Use Scipy sparse instead
+	Matrix multiplication involving the sparse representation is rapid thanks to algorithms that avoid explicitly
+	performing multiplications by 0 (nNMF or SVD for instance involve matrix multiplication)
+	'''
 
 	file_handle = open(file_name)
 	reader = csv.reader(file_handle, delimiter=' ')
@@ -33,7 +40,7 @@ def read_docword(file_name):
 	N = int(next(reader)[0])
 
 	#create numpy DTM (Document-Term Matrix)
-	m = np.empty(shape=[D,W], dtype='int32')
+	m = np.empty(shape=[D,W], dtype='uint8')
 	#instead of creating a sparse matrix and then fill it up, create a numpy matrix
 	#and then later convert it to csr -> SparseEfficiencyWarning
 	#m = sparse.csr_matrix( (D,W), dtype='int8')
@@ -128,7 +135,7 @@ km = KMeans(algorithm='auto',
 			verbose=0)
 
 %time km.fit(DTM_tfidf)
-clusters = km.labels_.tolist()
+clusters = km.labels_#.tolist()
 
 #sort cluster centers by proximity to centroid
 k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
@@ -208,7 +215,7 @@ from sklearn.cluster import MeanShift, estimate_bandwidth
 #bandwidth dictates the size of the region to search through. (Also called attractive/gravitational interaction length) Can be set manually
 #http://scikit-learn.org/stable/modules/generated/sklearn.cluster.estimate_bandwidth.html
 
-bandwidth = estimate_bandwidth(matrix, quantile=0.5, n_samples=200) #default: quantile=0.3, n_samples= (all samples are used)
+bandwidth = estimate_bandwidth(DTM_tfidf.toarray(), quantile=0.5, n_samples=200) #default: quantile=0.3, n_samples= (all samples are used)
 
 #quantile=0.5 means that the median of all pairwise distances is used
 #but it takes a default value if bandwidth is not set
@@ -221,12 +228,12 @@ bandwidth = estimate_bandwidth(matrix, quantile=0.5, n_samples=200) #default: qu
 ms = MeanShift(bandwidth=bandwidth)
 #ms = MeanShift()
 
-ms.fit(matrix)
-labels = ms.labels_
-cluster_centers = ms.cluster_centers_
+ms.fit(DTM_tfidf.toarray())
+ms_clusters = ms.labels_
+ms_cluster_centers = ms.cluster_centers_
 
-labels_unique = np.unique(labels)
-n_clusters_ = len(labels_unique)
+ms_cluster_labels_unique = np.unique(ms_clusters)
+n_clusters_ = len(ms_cluster_labels_unique)
 
 cluster_idxs = {}
 for cluster in range(n_clusters_):
@@ -310,12 +317,13 @@ import scipy.spatial.distance as scdist
 #Compute distance matrix . Cosine is a good metric
 #Pairwise distances between observations in n-dimensional space.
 
-#Option 1 is sklearn.metrics.pairwais cosine_similarity
+#Option 1 is sklearn.metrics.pairwise cosine_similarity
 dist = 1 - cosine_similarity(DTM_tfidf)
 
 #Option 2 is scipy.spatial.distance (can't take csr_matrix as input and is slower)
-D = scdist.pdist(DTM_tfidf.todense(), metric='cosine')
-D = scdist.squareform(D)
+#D = scdist.pdist(DTM_tfidf.todense(), metric='cosine')
+#Note converting DTM_tfidf to dense format here might be a bad idea, it requires much more memory
+#D = scdist.squareform(D)
 
 
 #Then get linkage matrix
