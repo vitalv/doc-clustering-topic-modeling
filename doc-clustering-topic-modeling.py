@@ -4,6 +4,7 @@ import csv
 #%matplotlib inline 
 import numpy as np
 import seaborn as sb
+from irlb import irlb 
 from scipy import sparse
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
@@ -131,7 +132,8 @@ strike a good balance
 #based on explained variance:
 #kos W/5 -> 83%
 #nips W/10 -> 96%
-n_components = W/5
+#enron W/10 -> 74% (wall time 3min 38s)
+n_components = W/10
 
 svd = TruncatedSVD(n_components)
 # DTM_tfidf results are normalized. Since LSA/SVD results are
@@ -144,6 +146,34 @@ DTM_tfidf_lsa = lsa.fit_transform(DTM_tfidf)
 
 print("Explained variance of the SVD step: {}%".format(int(svd.explained_variance_ratio_.sum() * 100)))
 
+
+#IRLB Implicitly Restarted Lanczos Bidiagonalization Method
+'''
+irlb: A fast and memory-efficient method for estimating a few largest singular values 
+and corresponding singular vectors of very large matrices  
+Allows for an approximation of the s largest singular values and their associated singular vectors 
+without requiring the calculation of all of the singular values.
+Available via the irlbpy package -> pipenv install -e git+https://github.com/bwlewis/irlbpy.git#egg=irlb
+
+Use it for the enron nytimes and pubmed datasets
+
+'''
+#S = irlb(DTM_tfidf, 10, [tol=0.0001 [, maxit=50]])
+S = irlb(DTM_tfidf, 10)#, [tol=0.0001 [, maxit=50]]) 
+#DTM_tfidf_lsa = DTM_tfidf.dot(S[2]) - S[0]*S[1]
+#DTM_tfidf_irlb = S[2]
+#If X (DTM) is approximated by UDVt, DVt is a s (single values, 10 in this case) by Word matrix *in the original space* :
+DV = np.dot(np.diag(S[1]), S[2].T) #(10, W) #word index is column
+
+
+
+'''
+Plot first two vectors resulting from the DV matrix. Similar words (words that either appear frequently in the same
+documents, or appear frequently with common sets of words throughout the corpus) are plotted together,
+a rough interpretation can often be assigned to dimensions appearing in the plot, 
+depending on the weighting scheme of the DTM. 
+
+'''
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -161,7 +191,7 @@ The second step creates new centroids by taking the mean value of all of the sam
 The inertia or within-cluster sum-of-squares is minimized
 '''
 
-k = 8
+k = 10
 km = KMeans(algorithm='auto',
             copy_x=True,
             init='k-means++',
