@@ -5,6 +5,7 @@ import csv
 import numpy as np
 import seaborn as sb
 from irlb import irlb 
+from scipy import stats
 from scipy import sparse
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
@@ -146,6 +147,9 @@ DTM_tfidf_lsa = lsa.fit_transform(DTM_tfidf)
 
 print("Explained variance of the SVD step: {}%".format(int(svd.explained_variance_ratio_.sum() * 100)))
 
+#For the kos dataset, LSA (n_components = W/5 explaining 83% of the original variance) 
+#reduces the size of the DTM from shape (3430, 6906) to (3430, 1381)
+
 
 #IRLB Implicitly Restarted Lanczos Bidiagonalization Method
 '''
@@ -181,72 +185,14 @@ depending on the weighting scheme of the DTM.
 
 
 
-#KMeans --------------------------------------------------------------------------------------------------------
-'''
-separate samples in n groups of equal variance
-first step chooses the initial centroids (k, the number of clusters)
-After initialization, K-means consists of looping between the two other steps:
-The first step assigns each sample to its nearest centroid.
-The second step creates new centroids by taking the mean value of all of the samples assigned to each previous centroid
-The inertia or within-cluster sum-of-squares is minimized
-'''
-
-k = 10
-km = KMeans(algorithm='auto',
-            copy_x=True,
-            init='k-means++',
-            max_iter=300,
-            n_clusters=k,
-            n_init=10,
-            n_jobs=1,
-            precompute_distances='auto',
-            random_state=None,
-            tol=0.0001,
-            verbose=0)
 
 
-#sort cluster centers by proximity to centroid and print topics:
 
-# without previous LSA/SVD dimred
-'''
-%time km.fit(DTM_tfidf)
-clusters = km.labels_
-k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
-order_centroids = k_centers.argsort()[:, ::-1] #argsort returns the indices that would sort an array
-cluster_topics = {}
-for c in range(k):
-    topic = ','.join([vocab[i] for i in [ix for ix in order_centroids[c, :5]]])
-    cluster_topics[c] = topic
-    print "Cluster %i: " % c + topic
-'''
-
-# with LSA/SVD dimensionality reduction
-%time km.fit(DTM_tfidf_lsa)
-clusters = km.labels_
-
-%time km.fit(DTM_tfidf_lsa)
-clusters = km.labels_
-
-%time km.fit(DTM_tfidf_lsa)
-clusters = km.labels_
-
-# Sort cluster centers by proximity to centroid
-k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
-original_space_centroids = svd.inverse_transform(k_centers)
-order_centroids = original_space_centroids.argsort()[:, ::-1] #argsort returns the indices that would sort an array
-
-lsa_cluster_topics = {}
-for c in range(k):
-    topic = ','.join([vocab[i] for i in [ix for ix in order_centroids[c, :5]]])
-    lsa_cluster_topics[c] = topic
-    print "Cluster %i: " % c + topic
 
 
 #--------------------------------------------------------------------------------------------------------
 
-
-
-# Try to find  optimal number of clusters for k-means. "Elbow" method
+# Try to find  optimal number of clusters for K-Means. "Elbow" method
 #This takes forever without dim red. Use DTM_tfidf_lsa instead of DTM_tfidf
 #Note also that DTM_tfdif_lsa, unlike DTM_tfidf, is not sparse anymore. No need to convert to dense format!
 k_range = range(2,100)
@@ -292,7 +238,145 @@ Check http://scikit-learn.org/stable/auto_examples/text/document_clustering.html
 '''
 
 
+#KMeans --------------------------------------------------------------------------------------------------------
+'''
+separate samples in groups of equal variance
+first step chooses the initial centroids (k, the number of clusters)
+After initialization, K-means consists of looping between the two other steps:
+The first step assigns each sample to its nearest centroid.
+The second step creates new centroids by taking the mean value of all of the samples assigned to each previous centroid
+The inertia or within-cluster sum-of-squares is minimized
+'''
+
+k = 23
+km = KMeans(algorithm='auto',
+            copy_x=True,
+            init='k-means++',
+            max_iter=300,
+            n_clusters=k,
+            n_init=10,
+            n_jobs=1,
+            precompute_distances='auto',
+            random_state=None,
+            tol=0.0001,
+            verbose=0)
+
+
+#sort cluster centers by proximity to centroid and print topics:
+
+# without previous LSA/SVD dimred
+'''
+%time km.fit(DTM_tfidf)
+clusters = km.labels_
+k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
+order_centroids = k_centers.argsort()[:, ::-1] #argsort returns the indices that would sort an array
+cluster_topics = {}
+for c in range(k):
+    topic = ','.join([vocab[i] for i in [ix for ix in order_centroids[c, :5]]])
+    cluster_topics[c] = topic
+    print "Cluster %i: " % c + topic
+'''
+
+# with LSA/SVD dimensionality reduction
+%time km.fit(DTM_tfidf_lsa)
+%time km.fit(DTM_tfidf_lsa)
+%time km.fit(DTM_tfidf_lsa)
+
+
+# Sort cluster centers by proximity to centroid
+clusters = km.labels_
+k_centers = km.cluster_centers_ #Coordinates of cluster centers  [n_clusters, n_features]
+original_space_centroids = svd.inverse_transform(k_centers)
+order_centroids = original_space_centroids.argsort()[:, ::-1] #argsort returns the indices that would sort an array
+
+lsa_cluster_topics = {}
+for c in range(k):
+    topic = ','.join([vocab[i] for i in [ix for ix in order_centroids[c, :5]]])
+    lsa_cluster_topics[c] = topic
+    print "Cluster %i: " % c + topic
+
+
+
+
+
 #--------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Term enrichment analysis  ---------------------------------------------------------------------------------
+from scipy import stats
+import pandas as pd
+import statsmodels.sandbox.stats.multicomp as mc
+
+#document indexes of cluster 1
+cl1_doc_idxs = [c[0] for c in enumerate(clusters) if c[1] == 1]
+
+#Note N (total nonzero count values in corpus) can be estimated as well as:
+#N = len(DTM.nonzero()[1])
+n_terms_in_corpus = len(DTM.nonzero()[1]) #this is fixed
+
+def enrich(document_term_matrix, doc_idxs, n_terms_in_corpus):
+    '''
+    uses scipy.stats hypergeometric test to extract probabilities (p-values) of term enrichment in a group of documents
+    groups can be defined for instance from the K-Means analysis
+    '''
+
+    DTM = document_term_matrix
+    enrichment = pd.DataFrame(columns=["word", "word_count_in_cluster", "n_words_in_cluster", "word_count_in_corpus", "n_words_in_corpus", "p-val" ])
+    word_idx = DTM[doc_idxs].nonzero()[1]
+    word_idx = np.unique(word_idx)
+    for i in range(len(word_idx)):
+        t = word_idx[i]
+        n_terms_in_cluster = len(DTM[doc_idxs].nonzero()[1])
+        term_count_in_cluster = DTM[doc_idxs,t].sum()
+        term_count_in_corpus = DTM[:,t].sum()
+        p = stats.hypergeom.sf(term_count_in_cluster, n_terms_in_corpus, n_terms_in_cluster, term_count_in_corpus)
+        enrichment.loc[i] = [vocab[t], term_count_in_cluster, n_terms_in_cluster, term_count_in_corpus, n_terms_in_corpus, p]
+        #Multiple hypothesis correction, transform p-values to adjusted p-values:
+        reject, adj_pvalues, corrected_a_sidak, corrected_a_bonf =  mc.multipletests(enrichment["p-val"], method='fdr_bh')
+        enrichment["adj_pval(BH)"] = adj_pvalues
+        enrichment = enrichment.sort_values(by='adj_pval(BH)').head(10)
+    return enrichment
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
