@@ -3,8 +3,8 @@
 import csv
 #%matplotlib inline 
 import numpy as np
+import pandas as pd
 import seaborn as sb
-from irlb import irlb 
 from scipy import stats
 from scipy import sparse
 import matplotlib.pyplot as plt
@@ -13,14 +13,16 @@ from sklearn.cluster import KMeans
 import scipy.cluster.hierarchy as sch
 import matplotlib.patches as mpatches
 import scipy.spatial.distance as scdist
+from IPython.display import display, HTML
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
-from sklearn.naive_bayes import MultinomialNB
+#from sklearn.naive_bayes import MultinomialNB
 from sklearn.decomposition import TruncatedSVD
+sb.set_style("whitegrid", {'axes.grid' : False})
+import statsmodels.sandbox.stats.multicomp as mc
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.metrics import silhouette_score, silhouette_samples
-sb.set_style("whitegrid", {'axes.grid' : False})
 
 
 
@@ -63,11 +65,11 @@ def read_docword(file_name):
 
 
 #DTM: Document-Term Matrix
-docword_file = 'data/docword.kos.txt'
+docword_file = 'data/docword.enron.txt'
 D,W,N,DTM = read_docword(docword_file)
 
 #Vocabulary
-vocab_file = 'data/vocab.kos.txt'
+vocab_file = 'data/vocab.enron.txt'
 vocab = read_vocab(vocab_file)
 
 
@@ -132,13 +134,13 @@ strike a good balance
 
 #based on explained variance:
 #kos W/5 -> 83%
-#nips W/10 -> 96%
+#nips W/20 -> 76%
 #enron W/10 -> 74% (wall time 3min 38s)
 n_components = W/10
 
 svd = TruncatedSVD(n_components)
-# DTM_tfidf results are normalized. Since LSA/SVD results are
-# not normalized, we have to redo the normalization:
+# DTM_tfidf results are normalized. 
+# LSA/SVD results are not normalized, redo the normalization:
 normalizer = Normalizer(copy=False)
 lsa = make_pipeline(svd, normalizer)
 
@@ -151,13 +153,31 @@ print("Explained variance of the SVD step: {}%".format(int(svd.explained_varianc
 #reduces the size of the DTM from shape (3430, 6906) to (3430, 1381)
 
 
-#IRLB Implicitly Restarted Lanczos Bidiagonalization Method
+
+
+
+
+
+
+
+
+
+#IRLB Implicitly Restarted Lanczos Bidiagonalization Method---------------------------------------------------------------
+from irlb import irlb
+
 '''
 irlb: A fast and memory-efficient method for estimating a few largest singular values 
 and corresponding singular vectors of very large matrices  
 Allows for an approximation of the s largest singular values and their associated singular vectors 
 without requiring the calculation of all of the singular values.
 Available via the irlbpy package -> pipenv install -e git+https://github.com/bwlewis/irlbpy.git#egg=irlb
+
+The returned triple S contains the matrix of left singular vectors, a vector of singular values, 
+and the matrix of right singular vectors, respectively, such that:
+A.dot(S[2]) - S[0]*S[1]
+is small (A here would be DTM_tfidf)
+
+DTM_tfidf.dot(S[2]) - S[0]*S[1]
 
 Use it for the enron nytimes and pubmed datasets
 
@@ -171,6 +191,7 @@ DV = np.dot(np.diag(S[1]), S[2].T) #(10, W) #word index is column
 
 
 
+
 '''
 Plot first two vectors resulting from the DV matrix. Similar words (words that either appear frequently in the same
 documents, or appear frequently with common sets of words throughout the corpus) are plotted together,
@@ -178,6 +199,18 @@ a rough interpretation can often be assigned to dimensions appearing in the plot
 depending on the weighting scheme of the DTM. 
 
 '''
+#DV[0:2,:]
+#plt.scatter(x=DV[0:2,:][0], y=DV[0:2,:][1])
+
+fig, ax = plt.subplots(figsize=(15, 20)) # set size
+ax.scatter(x=DV[0:2,:][0], y=DV[0:2,:][1])
+
+i=0
+for x, y in zip(DV[0:2,:][0], DV[0:2,:][1]):
+    if x > np.percentile(DV[0:2,:][0], 90) and y < np.percentile(DV[0:2,:][1], 10):
+        ax.annotate(vocab[i], (x, y))
+    i+=1
+plt.show()
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -248,7 +281,7 @@ The second step creates new centroids by taking the mean value of all of the sam
 The inertia or within-cluster sum-of-squares is minimized
 '''
 
-k = 23
+k = 10
 km = KMeans(algorithm='auto',
             copy_x=True,
             init='k-means++',
@@ -321,21 +354,13 @@ for c in range(k):
 
 
 #Term enrichment analysis  ---------------------------------------------------------------------------------
-from scipy import stats
-import pandas as pd
-import statsmodels.sandbox.stats.multicomp as mc
 
-#document indexes of cluster 1
-cl1_doc_idxs = [c[0] for c in enumerate(clusters) if c[1] == 1]
 
-#Note N (total nonzero count values in corpus) can be estimated as well as:
-#N = len(DTM.nonzero()[1])
-n_terms_in_corpus = len(DTM.nonzero()[1]) #this is fixed
-
-def enrich(document_term_matrix, doc_idxs, n_terms_in_corpus):
+def enrich(document_term_matrix, doc_idxs, n_terms_in_corpus, top_N):
     '''
     uses scipy.stats hypergeometric test to extract probabilities (p-values) of term enrichment in a group of documents
     groups can be defined for instance from the K-Means analysis
+    uses absolute count frequencies not tfidf (tfidf are already document-normalized)
     '''
 
     DTM = document_term_matrix
@@ -348,19 +373,24 @@ def enrich(document_term_matrix, doc_idxs, n_terms_in_corpus):
         term_count_in_cluster = DTM[doc_idxs,t].sum()
         term_count_in_corpus = DTM[:,t].sum()
         p = stats.hypergeom.sf(term_count_in_cluster, n_terms_in_corpus, n_terms_in_cluster, term_count_in_corpus)
-        enrichment.loc[i] = [vocab[t], term_count_in_cluster, n_terms_in_cluster, term_count_in_corpus, n_terms_in_corpus, p]
-        #Multiple hypothesis correction, transform p-values to adjusted p-values:
-        reject, adj_pvalues, corrected_a_sidak, corrected_a_bonf =  mc.multipletests(enrichment["p-val"], method='fdr_bh')
-        enrichment["adj_pval(BH)"] = adj_pvalues
-        enrichment = enrichment.sort_values(by='adj_pval(BH)').head(10)
+        if term_count_in_cluster > 20:
+            enrichment.loc[i] = [vocab[t], term_count_in_cluster, n_terms_in_cluster, term_count_in_corpus, n_terms_in_corpus, p]
+    #Multiple hypothesis correction, transform p-values to adjusted p-values:
+    reject, adj_pvalues, corrected_a_sidak, corrected_a_bonf =  mc.multipletests(enrichment["p-val"], method='fdr_bh')
+    enrichment["adj_pval(BH)"] = adj_pvalues
+    enrichment = enrichment.sort_values(by='adj_pval(BH)').head(top_N)
     return enrichment
 
+#document indexes of cluster 1
+cl0_doc_idxs = [c[0] for c in enumerate(clusters) if c[1] == 0]
+#Remember N is the total nonzero count values in corpus
+#It can be estimated as well as: len(DTM.nonzero()[1])
+
+cluster1_enrichment = enrich(DTM, cl0_doc_idxs, N, 20)
 
 
 
-
-
-
+#---------------------------------------------------------------------------------------------------------------------------------
 
 
 
