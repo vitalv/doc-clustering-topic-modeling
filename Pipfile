@@ -11,10 +11,13 @@ name = "pypi"
 
 [packages]
 
+csv = "*"
 numpy = "*"
 sklearn = "*"
 scipy = "*"
-
+seaborn = "*"
+matplotlib = "*"
+statsmodels = "*"
 
 [requires]
 

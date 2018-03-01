@@ -5,6 +5,7 @@ import csv
 import numpy as np
 import pandas as pd
 import seaborn as sb
+from irlb import irlb
 from scipy import stats
 from scipy import sparse
 import matplotlib.pyplot as plt
@@ -25,6 +26,21 @@ from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.metrics import silhouette_score, silhouette_samples
 
 
+
+'''
+A Text Mining case study on Document Clustering and Topic Modeling
+
+Author: Vital Vialas . uveuve@gmail.com
+
+Note. This is not meant to be run as a script, but merely 
+steps to be run sequentially from a python interpeter like a jupyter notebook.
+See doc-clustering-topic-modeling.py
+
+'''
+
+
+
+#Functions to read the Bags of Words ------------------------------------------------------------------------------
 
 def read_vocab(vocab_file_name):
     '''Reads vocabulary file into a list'''
@@ -53,6 +69,11 @@ def read_docword(file_name):
     #and then later convert it to csr -> SparseEfficiencyWarning
     #m = sparse.csr_matrix( (D,W), dtype='int8')
 
+    '''
+    Note: this is not an efficient way to fill in the matrix. 
+    TO DO: Create first the array for each document and then fill the whole array at once
+    '''
+
     for row in reader:
         D_i = int(row[0])-1
         W_i = int(row[1])-1
@@ -65,12 +86,16 @@ def read_docword(file_name):
 
 
 #DTM: Document-Term Matrix
-docword_file = 'data/docword.enron.txt'
+docword_file = 'data/docword.kos.txt'
 D,W,N,DTM = read_docword(docword_file)
 
 #Vocabulary
-vocab_file = 'data/vocab.enron.txt'
+vocab_file = 'data/vocab.kos.txt'
 vocab = read_vocab(vocab_file)
+
+#---------------------------------------------------------------------------------------------------------------------
+
+
 
 
 # tfidf, term frequency inverse document frequency
@@ -80,6 +105,8 @@ vocab = read_vocab(vocab_file)
 
 tfidf_transformer = TfidfTransformer()
 DTM_tfidf = tfidf_transformer.fit_transform(DTM)
+
+
 
 
 
@@ -152,6 +179,9 @@ print("Explained variance of the SVD step: {}%".format(int(svd.explained_varianc
 #For the kos dataset, LSA (n_components = W/5 explaining 83% of the original variance) 
 #reduces the size of the DTM from shape (3430, 6906) to (3430, 1381)
 
+#For the enron dataset DTM_idf.shape = (39861, 28102); DTM_idf_lsa.shape = (39861, 2810)
+
+
 
 
 
@@ -174,9 +204,7 @@ Available via the irlbpy package -> pipenv install -e git+https://github.com/bwl
 
 The returned triple S contains the matrix of left singular vectors, a vector of singular values, 
 and the matrix of right singular vectors, respectively, such that:
-A.dot(S[2]) - S[0]*S[1]
-is small (A here would be DTM_tfidf)
-
+A.dot(S[2]) - S[0]*S[1] is small
 DTM_tfidf.dot(S[2]) - S[0]*S[1]
 
 Use it for the enron nytimes and pubmed datasets
@@ -184,13 +212,11 @@ Use it for the enron nytimes and pubmed datasets
 '''
 #S = irlb(DTM_tfidf, 10, [tol=0.0001 [, maxit=50]])
 S = irlb(DTM_tfidf, 10)#, [tol=0.0001 [, maxit=50]]) 
-#DTM_tfidf_lsa = DTM_tfidf.dot(S[2]) - S[0]*S[1]
-#DTM_tfidf_irlb = S[2]
-#If X (DTM) is approximated by UDVt, DVt is a s (single values, 10 in this case) by Word matrix *in the original space* :
-DV = np.dot(np.diag(S[1]), S[2].T) #(10, W) #word index is column
+#If X (DTM) is approximated by UDVt, DVt is a s (single values, 10 in this case) by Word matrix :
 
+UD = np.matmul(np.diag(S[1]), S[2].T) #use this as input for kmeans
 
-
+DV = np.matmul(np.diag(S[1]), S[2].T) #(10, W) #word index is column
 
 '''
 Plot first two vectors resulting from the DV matrix. Similar words (words that either appear frequently in the same
@@ -199,18 +225,30 @@ a rough interpretation can often be assigned to dimensions appearing in the plot
 depending on the weighting scheme of the DTM. 
 
 '''
-#DV[0:2,:]
-#plt.scatter(x=DV[0:2,:][0], y=DV[0:2,:][1])
+DV2D = DV[0:2,:] #Keep only first two components to plot 2D
 
 fig, ax = plt.subplots(figsize=(15, 20)) # set size
-ax.scatter(x=DV[0:2,:][0], y=DV[0:2,:][1])
-
-i=0
-for x, y in zip(DV[0:2,:][0], DV[0:2,:][1]):
-    if x > np.percentile(DV[0:2,:][0], 90) and y < np.percentile(DV[0:2,:][1], 10):
+xs = DV2D[0] #1st component
+ys = DV2D[1] #2nd component
+x_y_pairs = zip(xs,ys)
+ax.scatter(x=xs, y=ys)
+for i in range(len(x_y_pairs)):
+    word = vocab[i]
+    x = x_y_pairs[i][0]
+    y = x_y_pairs[i][1]
+    if np.abs(x) > np.abs(np.percentile(xs, 99)) \
+    and np.abs(y) > np.abs(np.percentile(ys, 99)):
         ax.annotate(vocab[i], (x, y))
-    i+=1
+
+plt.title(docword_file)
+plt.xlabel('SVD1')
+plt.ylabel('SVD2')
 plt.show()
+
+''' 
+Here similar words (words that either appear frequently in the same documents, or appear frequently with common sets
+of words throughout the corpus) are plotted together, and a rough interpretation can often be obtained
+'''
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -271,6 +309,11 @@ Check http://scikit-learn.org/stable/auto_examples/text/document_clustering.html
 '''
 
 
+
+
+
+
+
 #KMeans --------------------------------------------------------------------------------------------------------
 '''
 separate samples in groups of equal variance
@@ -312,8 +355,8 @@ for c in range(k):
 
 # with LSA/SVD dimensionality reduction
 %time km.fit(DTM_tfidf_lsa)
-%time km.fit(DTM_tfidf_lsa)
-%time km.fit(DTM_tfidf_lsa)
+#%time km.fit(DTM_tfidf_lsa)
+#%time km.fit(DTM_tfidf_lsa)
 
 
 # Sort cluster centers by proximity to centroid
